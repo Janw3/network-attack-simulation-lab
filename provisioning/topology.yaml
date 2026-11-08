@@ -1,0 +1,211 @@
+# =============================================================================
+# Network Attack Simulation Lab - declarative VirtualBox topology
+# =============================================================================
+#
+# This file is the single source of truth for the lab's VirtualBox networks
+# and virtual machines. `labctl.py` reads it and creates everything idempotently
+# via VBoxManage, so the whole fabric can be rebuilt with one command.
+#
+# Scope: NETWORK + VM SKELETON.
+#   - Networks are created and the VMs are created/imported and wired up
+#     (NICs, RAM, CPU). Booting and in-guest configuration (pfSense rules,
+#     VyOS/RIP, Splunk, OpenNMS, IP addresses) stay MANUAL, exactly as
+#     described in docs/report.md.
+#
+# How L2 segmentation is modelled
+#   A VirtualBox "internal network" (intnet) is a dumb L2 hub with no VLAN
+#   filtering of its own. So each L2 segment from the report's addressing
+#   table (Table 2) is modelled as its OWN internal network. The `vlan`
+#   field below is kept purely as DOCUMENTATION: it records the VLAN ID the
+#   report assigns to that segment, so that when you later configure the
+#   guests (pfSense sub-interfaces, VyOS tagged interfaces) you tag them to
+#   match. VirtualBox itself does not tag frames.
+#
+#   If you ever prefer a single trunk + guest-side tagging instead, put the
+#   relevant VMs on one shared intnet and set `promisc: allow-all` on those
+#   NICs so tagged frames pass through.
+#
+# Fill in the `image:` paths below with the course-provided OVAs / disk
+# images on your own machine. Images are never committed (see .gitignore).
+# A VM with an empty `image:` is created as an empty shell you can install
+# into manually.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Networks
+# -----------------------------------------------------------------------------
+networks:
+  # Untrusted side -----------------------------------------------------------
+  # "Outer WAN": a VirtualBox NAT Network so the lab can reach the internet
+  # through the host. This one IS explicitly created by labctl.py.
+  - name: outer_wan
+    kind: natnetwork
+    cidr: "10.13.37.0/24"
+    dhcp: false
+
+  # "WAN": isolated segment between the WAN router and the pfSense WAN port.
+  - name: wan
+    kind: intnet
+    cidr: "172.16.1.0/24"
+
+  # Trusted side - behind pfSense -------------------------------------------
+  - name: servers_net          # Servers: Kali-admin, Splunk, OpenNMS
+    kind: intnet
+    cidr: "192.168.20.0/28"
+    vlan: null                 # untagged
+
+  - name: dmz1_net             # DMZ1: public webserver (port-forwarded :80)
+    kind: intnet
+    cidr: "192.168.20.16/28"
+    vlan: 16
+
+  - name: clients_net          # Clients + entry to the routed area
+    kind: intnet
+    cidr: "192.168.20.32/28"
+    vlan: 32
+
+  # Routed core (R1-R4, RIP) -------------------------------------------------
+  - name: r1r2
+    kind: intnet
+    cidr: "192.168.20.48/28"
+    vlan: 48
+  - name: r1r3
+    kind: intnet
+    cidr: "192.168.20.64/28"
+    vlan: 64
+  - name: r2r3
+    kind: intnet
+    cidr: "192.168.20.80/28"
+    vlan: 80
+  - name: r3r4
+    kind: intnet
+    cidr: "192.168.20.96/28"
+    vlan: 96
+
+  - name: lab_net              # LAB: the Windows XP victim (no VLAN, legacy OS)
+    kind: intnet
+    cidr: "192.168.20.112/28"
+    vlan: null
+
+# -----------------------------------------------------------------------------
+# Virtual machines
+# -----------------------------------------------------------------------------
+# Each VM:
+#   name     : VirtualBox VM name (what you see in the GUI)
+#   image    : path to an .ova (imported) or a .vdi/.vmdk disk (attached).
+#              Leave "" to create an empty shell for a manual install.
+#   ostype   : VBoxManage OS type id (VBoxManage list ostypes). Best-effort
+#              defaults; adjust to match your images.
+#   cpus     : vCPU count
+#   memory   : RAM in MB
+#   nics     : ordered list; NIC 1 is the first entry. Each nic:
+#                net      : a network name defined above
+#                promisc  : optional, "allow-all" to pass tagged/foreign frames
+#                nictype  : optional, e.g. 82540EM (default), virtio, 82545EM
+#
+# NIC order follows the report's topology (README mermaid diagram).
+# -----------------------------------------------------------------------------
+vms:
+  # --- Untrusted ------------------------------------------------------------
+  - name: lab-wan-router
+    image: ""                  # VyOS image (source-NAT variant), report 1.4
+    ostype: Debian_64
+    cpus: 1
+    memory: 512
+    nics:
+      - { net: outer_wan }
+      - { net: wan }
+
+  # --- Firewall -------------------------------------------------------------
+  # Report 1.6.1 lists four *logical* interfaces (WAN, SERVERS, DMZ1, CLIENTS).
+  # Here each trusted segment is its own intnet, so pfSense gets four NICs:
+  # WAN + one per trusted L2 segment. Tag DMZ1/CLIENTS inside pfSense to the
+  # VLAN IDs documented in topology.networks if you want it faithful to the
+  # report's trunking; with separate intnets it already segments at L2.
+  - name: lab-pfsense
+    image: ""                  # pfSense image, factory-reset per report 1.6
+    ostype: FreeBSD_64
+    cpus: 1
+    memory: 1024
+    nics:
+      - { net: wan }           # WAN
+      - { net: servers_net }   # SERVERS (untagged)
+      - { net: dmz1_net }      # DMZ1  (VLAN 16)
+      - { net: clients_net }   # CLIENTS (VLAN 32)
+
+  # --- Routed core (VyOS, RIP) ---------------------------------------------
+  - name: lab-r1
+    image: ""                  # VyOS image (report 1.3)
+    ostype: Debian_64
+    cpus: 1
+    memory: 512
+    nics:
+      - { net: clients_net }
+      - { net: r1r2 }
+      - { net: r1r3 }
+  - name: lab-r2
+    image: ""
+    ostype: Debian_64
+    cpus: 1
+    memory: 512
+    nics:
+      - { net: r1r2 }
+      - { net: r2r3 }
+  - name: lab-r3
+    image: ""
+    ostype: Debian_64
+    cpus: 1
+    memory: 512
+    nics:
+      - { net: r1r3 }
+      - { net: r2r3 }
+      - { net: r3r4 }
+  - name: lab-r4
+    image: ""
+    ostype: Debian_64
+    cpus: 1
+    memory: 512
+    nics:
+      - { net: r3r4 }
+      - { net: lab_net }
+
+  # --- Servers network ------------------------------------------------------
+  - name: lab-kali-admin
+    image: ""                  # Course Kali image (report 1.5)
+    ostype: Debian_64
+    cpus: 2
+    memory: 2048
+    nics:
+      - { net: servers_net }
+  - name: lab-splunk
+    image: ""                  # Splunk SIEM host
+    ostype: Linux_64
+    cpus: 2
+    memory: 4096
+    nics:
+      - { net: servers_net }
+  - name: lab-opennms
+    image: ""                  # OpenNMS NMS host
+    ostype: Linux_64
+    cpus: 2
+    memory: 2048
+    nics:
+      - { net: servers_net }
+
+  # --- DMZ ------------------------------------------------------------------
+  - name: lab-webserver
+    image: ""                  # OWASP webserver (DMZ1), port-forwarded :80
+    ostype: Linux_64
+    cpus: 1
+    memory: 1024
+    nics:
+      - { net: dmz1_net }
+
+  # --- LAB victim -----------------------------------------------------------
+  - name: lab-victim-xp
+    image: ""                  # Course Windows XP image (report 1.2)
+    ostype: WindowsXP
+    cpus: 1
+    memory: 512
+    nics:
+      - { net: lab_net }
