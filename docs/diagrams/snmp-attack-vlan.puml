@@ -1,0 +1,89 @@
+@startuml
+
+skin rose
+
+skinparam sequence {
+  BackgroundColor #4AD386
+  BorderColor #a0a0a0
+  BackgroundColor<<Main>> gold
+  BorderColor black
+  ArrowColor black
+  FontName Arial Unicode MS
+  FontSize 20
+
+  LifeLineBorderColor black
+  LifeLineBackgroundColor AE396
+
+  ParticipantBackgroundColor f4f4f4
+  ParticipantBorderColor black
+}
+
+skinparam actor {
+  BackgroundColor #f4f4f4
+  BorderColor #a0a0a0
+  BackgroundColor<<Main>> gold
+  BorderColor black
+  ArrowColor black
+  FontName Arial Unicode MS
+  FontSize 20
+
+  LifeLineBorderColor black
+  LifeLineBackgroundColor AE396
+
+}
+
+skinparam classFontSize 24
+skinparam classAttributeIconSize 0
+skinparam defaultFontSize 20
+
+skinparam ArrowColor black
+skinparam ArrowThickness 1
+
+hide circle
+hide footbox
+
+
+actor "Kali (internal attacker)\n192.168.20.40" as attacker
+
+
+
+
+participant "R4\n192.168.20.110" as r4
+participant "R3\n192.168.20.78" as r3
+participant "R2\n192.168.20.62" as r2
+participant "R1\n192.168.20.46" as r1
+participant "Victim \n192.168.20.126" as victim
+
+activate attacker
+
+
+attacker ->> r1 : IP (src=192.168.20.126, dst=192.168.20) \n SNMP GETBULK 1.3.6.1.2.1.4.24
+activate r1
+
+attacker ->> r2 : IP (src=192.168.20.126, dst=192.168.20) \n SNMP GETBULK 1.3.6.1.2.1.4.24
+activate r2
+
+attacker ->> r3 : IP (src=192.168.20.126, dst=192.168.20) \n SNMP GETBULK 1.3.6.1.2.1.4.24
+activate r3
+
+attacker ->> r4 : IP (src=192.168.20.126, dst=192.168.20) \n SNMP GETBULK 1.3.6.1.2.1.4.24
+activate r4
+
+deactivate attacker
+
+
+r1 ->> victim : IP (src=192.168.20.46, dst=192.168.20.126) \n SNMP GET-RESPONSE 1.3.6.1.2.1.4.24...
+activate victim
+deactivate r1
+
+r2 ->> victim : IP (src=192.168.20.62, dst=192.168.20.126) \n SNMP GET-RESPONSE 1.3.6.1.2.1.4.24...
+deactivate r2
+
+r3 ->> victim : IP (src=192.168.20.78, dst=192.168.20.126) \n SNMP GET-RESPONSE 1.3.6.1.2.1.4.24...
+deactivate r3
+
+r4 ->> victim : IP (src=192.168.20.110, dst=192.168.20.126) \n SNMP GET-RESPONSE 1.3.6.1.2.1.4.24...
+deactivate r4
+
+
+@enduml
