@@ -98,7 +98,7 @@ Full addressing, VLAN IDs, and firewall rules are in
 ## Installation
 
 ```bash
-git clone <this-repo-url>
+git clone https://github.com/Janw3/network-attack-simulation-lab.git
 cd network-attack-simulation-lab
 pip install -r requirements.txt
 ```
